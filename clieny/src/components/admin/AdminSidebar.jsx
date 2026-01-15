@@ -37,7 +37,7 @@ const AdminSidebar = () => {
             key={index}
             to={link.path} end
             className={({ isActive }) =>
-              `relative flex items-center max-md:justify-center gap-2 w-full py-2.5 min-md:pl-10 first:mt-6 text-gray-400 
+              `relative flex items-center max-md:justify-center gap-2 w-full py-2.5 md:pl-10 first:mt-6 text-gray-400 
               ${isActive && "bg-primary/15 text-primary group"}`
             }
           >

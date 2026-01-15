@@ -1,1 +1,42 @@
-node_modules
+# Node modules for root (if any)
+node_modules/
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Frontend client folder ignores
+clieny/node_modules/
+clieny/dist/
+clieny/.env
+
+# Backend server folder ignores
+server/node_modules/
+server/.env
+server/.env.production
+
+# Editor files
+.vscode/
+.idea/
+# dependencies
+node_modules/
+
+# environment variables
+.env
+.env.*
+
+# build
+dist/
+build/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
