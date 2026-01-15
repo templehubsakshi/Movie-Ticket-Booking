@@ -1,12 +1,22 @@
 import mongoose from "mongoose";
 
+// Function to connect to MongoDB
 const connectDB = async () => {
   try {
-    await mongoose.connect(`${process.env.MONGODB_URI}/quickshow?retryWrites=true&w=majority`);
-    console.log("MongoDB connected successfully");
+    // Event listener: jab database connect ho jaaye
+    mongoose.connection.on("connected", () =>
+      console.log("Database connected")
+    );
+
+    // Connect to MongoDB using URI from .env
+    // '/quickshow' database ka naam hai
+    await mongoose.connect(`${process.env.MONGODB_URI}/quickshow`);
   } catch (error) {
-    console.log("DB Connection Error:", error.message);
+    // Agar connection me error aaye to console me dikhaye
+    console.log(error.message);
   }
 };
 
+// Export function to use in server.js
 export default connectDB;
+//2
