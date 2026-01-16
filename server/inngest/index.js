@@ -112,63 +112,63 @@ const syncUserUpdation = inngest.createFunction(
   }
 );
 
-/*
-  =====================================================
-  RELEASE SEATS IF PAYMENT NOT DONE
-  =====================================================
-  Ye function booking ke baad run hota hai
-  Agar 10 minutes me payment nahi hua
-  toh:
-  - seats free
-  - booking delete
-*/
-// const releaseSeatsAndDeleteBooking = inngest.createFunction(
-//   { id: "release-seats-delete-booking" },
-//   { event: "app/checkpayment" }, // ye event booking controller bhejta hai
-//   async ({ event, step }) => {
 
-//     // current time + 10 minutes
-//     const tenMinutesLater = new Date(
-//       Date.now() + 10 * 60 * 1000
-//     );
+  // =====================================================
+  // RELEASE SEATS IF PAYMENT NOT DONE
+  // =====================================================
+  // Ye function booking ke baad run hota hai
+  // Agar 10 minutes me payment nahi hua
+  // toh:
+  // - seats free
+  // - booking delete
 
-//     // Inngest ko bol rahe:
-//     // "10 minute ruk ja"
-//     await step.sleepUntil(
-//       "wait-for-10-minutes",
-//       tenMinutesLater
-//     );
+ const releaseSeatsAndDeleteBooking = inngest.createFunction(
+   { id: "release-seats-delete-booking" },
+  { event: "app/checkpayment" }, // ye event booking controller bhejta hai
+  async ({ event, step }) => {
 
-//     await step.run("check-payment-status", async () => {
-//       const bookingId = event.data.bookingId;
+    // current time + 10 minutes
+    const tenMinutesLater = new Date(
+      Date.now() + 10 * 60 * 1000
+    );
 
-//       // DB se booking lao
-//       const booking = await Booking.findById(bookingId);
+    // Inngest ko bol rahe:
+    // "10 minute ruk ja"
+    await step.sleepUntil(
+      "wait-for-10-minutes",
+      tenMinutesLater
+    );
 
-//       // agar payment nahi hua
-//       if (!booking.isPaid) {
-//         const show = await Show.findById(booking.show);
+    await step.run("check-payment-status", async () => {
+      const bookingId = event.data.bookingId;
 
-//         // jitni seats book hui thi
-//         // unko free kar do
-//         booking.bookedSeats.forEach((seat) => {
-//           delete show.occupiedSeats[seat];
-//         });
+      // DB se booking lao
+      const booking = await Booking.findById(bookingId);
 
-//         // important kyunki occupiedSeats object hai
-//         show.markModified("occupiedSeats");
-//         await show.save();
+      // agar payment nahi hua
+      if (!booking.isPaid) {
+        const show = await Show.findById(booking.show);
 
-//         // booking delete
-//         await Booking.findByIdAndDelete(booking._id);
-//       }
+        // jitni seats book hui thi
+        // unko free kar do
+        booking.bookedSeats.forEach((seat) => {
+          delete show.occupiedSeats[seat];
+        });
 
-//       // POSSIBLE ISSUE:
-//       // Agar booking pehle hi delete ho chuki ho
-//       // toh booking null ho sakti hai
-//     });
-//   }
-// );
+        // important kyunki occupiedSeats object hai
+        show.markModified("occupiedSeats");
+        await show.save();
+
+        // booking delete
+        await Booking.findByIdAndDelete(booking._id);
+      }
+
+      // POSSIBLE ISSUE:
+      // Agar booking pehle hi delete ho chuki ho
+      // toh booking null ho sakti hai
+    });
+  }
+);
 
 /*
   =====================================================
@@ -320,7 +320,7 @@ export const functions = [
   syncUserCreation,
   syncUserDeletion,
   syncUserUpdation,
-  // // releaseSeatsAndDeleteBooking,
+ releaseSeatsAndDeleteBooking,
   // sendBookingConfirmationEmail,
   // sendShowReminders,
   // sendNewShowNotifications,
