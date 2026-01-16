@@ -38,7 +38,7 @@ import adminRouter from "./routes/adminRoutes.js";
 import userRouter from "./routes/userRoutes.js";
 
 
-// import { stripeWebhooks } from "./controllers/stripeWebhooks.js";
+ import { stripeWebhooks } from "./controllers/stripeWebhooks.js";
 
 
 //  App create
@@ -64,11 +64,11 @@ await connectDB();
 // Stripe special raw data bhejta hai isliye express.raw use hota hai
 // ❌ Abhi payment nahi kar rahe, isliye comment rakha
 
-// app.use(
-//   "/api/stripe",
-//   express.raw({ type: "application/json" }),
-//   stripeWebhooks
-// );
+app.use(
+  "/api/stripe",
+  express.raw({ type: "application/json" }),
+  stripeWebhooks
+);
 
 // =====================
 // 6️⃣ Global Middlewares
