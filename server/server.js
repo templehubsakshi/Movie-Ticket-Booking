@@ -16,31 +16,24 @@ const port = process.env.PORT || 3000;
 
 await connectDB();
 
-const allowedOrigins = [
-  "http://localhost:5173",
-  "https://movie-ticket-booking-gilt.vercel.app"
-];
+// ✅ CORS — must be FIRST before any other middleware
+const corsOptions = {
+  origin: 'https://movie-ticket-booking-gilt.vercel.app',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // handle preflight for all routes
 
-// Stripe webhook
+// Stripe Webhooks — needs raw body, must come before express.json()
 app.use(
   "/api/stripe",
   express.raw({ type: "application/json" }),
   stripeWebhooks
 );
 
-// ✅ CORS FIX
-app.use(cors({
-  origin: allowedOrigins,
-  credentials: true,
-}));
-
-// ✅ Preflight fix
-app.options("*", cors({
-  origin: allowedOrigins,
-  credentials: true
-}));
-
-// JSON
+// Core middleware
 app.use(express.json());
 
 // Routes
