@@ -16,21 +16,37 @@ const port = process.env.PORT || 3000;
 
 await connectDB();
 
-// Stripe Webhooks — must come before express.json() (needs raw body)
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://movie-ticket-booking-gilt.vercel.app"
+];
+
+// Stripe webhook
 app.use(
   "/api/stripe",
   express.raw({ type: "application/json" }),
   stripeWebhooks
 );
 
-// Core middleware
+// ✅ CORS FIX
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true,
+}));
+
+// ✅ Preflight fix
+app.options("*", cors({
+  origin: allowedOrigins,
+  credentials: true
+}));
+
+// JSON
 app.use(express.json());
-app.use(cors());
 
 // Routes
 app.get("/", (req, res) => res.send("Server is Live!"));
 app.use("/api/inngest", serve({ client: inngest, functions }));
-app.use("/api/auth", authRouter);       // register / login / me
+app.use("/api/auth", authRouter);
 app.use("/api/show", showRouter);
 app.use("/api/booking", bookingRouter);
 app.use("/api/admin", adminRouter);
