@@ -3,7 +3,7 @@ import { Toaster } from "react-hot-toast";
 
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
-import { ProtectedRoute, AdminRoute } from "./components/ProtectedRoute";
+import { ProtectedRoute, AdminRoute } from "./components/ProtectedRoute.jsx";
 
 import Home from "./pages/Home";
 import Movies from "./pages/Movies";
