@@ -2,86 +2,41 @@ import Booking from "../models/Booking.js";
 import Show from "../models/Show.js";
 import User from "../models/User.js";
 
-/*
-  -----------------------------
-  CHECK ADMIN
-  -----------------------------
-  Ye API sirf ek simple check hai
-
-  Route:
-  GET /api/admin/is-admin
-
-  Is route se pehle protectAdmin middleware lag chuka hota hai,
-  matlab agar yaha tak aa gaya user → wo already admin hai
-*/
+// GET /api/admin/is-admin  — middleware already verified, just confirm
 export const isAdmin = async (req, res) => {
-  // yaha koi DB call nahi
-  // sirf frontend ko batana hai ki haan admin hai
   res.json({ success: true, isAdmin: true });
 };
 
-/*
-  -----------------------------
-  DASHBOARD DATA (ADMIN PANEL)
-  -----------------------------
-  Admin dashboard ke numbers yahi se aate hain:
-  - total bookings
-  - total revenue
-  - active shows
-  - total users
-*/
+// GET /api/admin/dashboard
 export const getDashboardData = async (req, res) => {
   try {
-    // sirf PAID bookings hi count ho rahi hain
-    // unpaid bookings ignore ho jaati hain
-    const bookings = await Booking.find({ isPaid: true });
+    const bookings    = await Booking.find({ isPaid: true });
+    const activeShows = await Show.find({ showDateTime: { $gte: new Date() } })
+      .populate("movie")
+      .sort({ showDateTime: 1 });
+    const totalUser   = await User.countDocuments();
 
-    // aaj ke baad wali shows hi active maani jaati hain
-    const activeShows = await Show.find({
-      showDateTime: { $gte: new Date() },
-    }).populate("movie");
-    // populate("movie") ka matlab:
-    // show.movie me sirf ID nahi
-    // pura movie object aa jaata hai
-
-    // total users count
-    const totalUser = await User.countDocuments();
-
-    // dashboard ke liye final data
-    const dashboardData = {
-      totalBookings: bookings.length,
-
-      // revenue = saare paid bookings ka amount add
-      totalRevenue: bookings.reduce(
-        (acc, booking) => acc + booking.amount,
-        0
-      ),
-
-      activeShows,
-      totalUser,
-    };
-
-    res.json({ success: true, dashboardData });
+    res.json({
+      success: true,
+      dashboardData: {
+        totalBookings: bookings.length,
+        totalRevenue:  bookings.reduce((acc, b) => acc + b.amount, 0),
+        activeShows,
+        totalUser,
+      },
+    });
   } catch (error) {
     console.error(error);
     res.json({ success: false, message: error.message });
   }
 };
 
-/*
-  -----------------------------
-  GET ALL SHOWS (ADMIN VIEW)
-  -----------------------------
-  Admin ko saare upcoming shows dikhane ke liye
-*/
+// GET /api/admin/all-shows
 export const getAllShows = async (req, res) => {
   try {
-    const shows = await Show.find({
-      showDateTime: { $gte: new Date() },
-    })
-      .populate("movie") // movie ka full data
-      .sort({ showDateTime: 1 }); // nearest show pehle
-
+    const shows = await Show.find({ showDateTime: { $gte: new Date() } })
+      .populate("movie")
+      .sort({ showDateTime: 1 });
     res.json({ success: true, shows });
   } catch (error) {
     console.error(error);
@@ -89,31 +44,31 @@ export const getAllShows = async (req, res) => {
   }
 };
 
-/*
-  -----------------------------
-  GET ALL BOOKINGS (ADMIN VIEW)
-  -----------------------------
-  Admin ko saari bookings dekhni hoti hain:
-  - kaun user
-  - kaunsi movie
-  - kaunsa show
-*/
+// GET /api/admin/all-bookings
+// Handles legacy Clerk user IDs gracefully — old rows have user: "user_xxx"
+// which can't be cast to ObjectId. We populate manually and fall back safely.
 export const getAllBookings = async (req, res) => {
   try {
+    // Fetch bookings + shows without populating user yet
     const bookings = await Booking.find({})
-      // user field ka pura data lao
-      .populate("user")
+      .populate({ path: "show", populate: { path: "movie" } })
+      .sort({ createdAt: -1 })
+      .lean();
 
-      // show ke andar movie bhi lao
-      .populate({
-        path: "show",
-        populate: { path: "movie" },
+    // Manually resolve user for each booking — skip gracefully if ID is invalid
+    const enriched = await Promise.all(
+      bookings.map(async (booking) => {
+        try {
+          const user = await User.findById(booking.user).select("name email").lean();
+          return { ...booking, user: user ?? { name: "Unknown User", email: "" } };
+        } catch {
+          // Old Clerk ID ("user_xxx") — can't cast to ObjectId, return placeholder
+          return { ...booking, user: { name: "Legacy User", email: "" } };
+        }
       })
+    );
 
-      // latest booking pehle
-      .sort({ createdAt: -1 });
-
-    res.json({ success: true, bookings });
+    res.json({ success: true, bookings: enriched });
   } catch (error) {
     console.error(error);
     res.json({ success: false, message: error.message });
