@@ -9,7 +9,7 @@ const HeroSection = () => {
     <section className="relative h-screen w-full overflow-hidden">
       {/* Background Image */}
       <div
-        className='absolute inset-0 bg-[url("/background-img.jpg")] bg-cover bg-center'
+        className='absolute inset-0 bg-[url("/pexels-rostislav-5108764.jpg")] bg-cover bg-center'
         aria-hidden="true"
       />
 
