@@ -32,7 +32,7 @@ export const createBooking = async (req, res) => {
     // -----------------------------
     // Data from frontend / auth
     // -----------------------------
-    const { userId } = req.auth(); // Logged-in user ID from Clerk
+    const userId = req.userId; // Set by protectRoute middleware
     const { showId, selectedSeats } = req.body; 
     // POST body → { showId, selectedSeats: ["A1", "A2"] }
     const { origin } = req.headers; 
