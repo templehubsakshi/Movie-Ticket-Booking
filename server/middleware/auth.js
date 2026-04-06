@@ -1,38 +1,44 @@
-import { clerkClient } from "@clerk/express";
+import jwt from "jsonwebtoken";
+import User from "../models/User.js";
 
-// ye middleware check karta hai ki request bhejne wala user admin hai ya nahi
-export const protectAdmin = async (req, res, next) => {
+// ─── Protect any authenticated route ──────────────────────────────────────────
+// Extracts userId from Bearer token and attaches it to req.userId
+export const protectRoute = async (req, res, next) => {
   try {
-    // req.auth() clerk middleware se aata hai
-    // isme logged-in user ki basic info hoti hai
-    // yaha se hume sirf userId chahiye
-    const { userId } = req.auth();
-
-    // clerk ke database se user ka complete data nikal rahe hain
-    // jaise email, name, metadata etc.
-    const user = await clerkClient.users.getUser(userId);
-
-    // yaha hum user ke privateMetadata me role check kar rahe hain
-    // role manually admin ke liye set kiya jata hai
-    if (user.privateMetadata.role !== "admin") {
-      // agar user admin nahi hai
-      // toh yahin request ko rok dete hain
-      return res.json({
-        success: false,
-        message: "not authorized",
-      });
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ success: false, message: "Not authorized — no token" });
     }
 
-    // agar user admin hai
-    // toh request ko next controller / route tak jaane dete hain
+    const token = authHeader.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.userId = decoded.userId;
     next();
   } catch (error) {
-    // agar koi bhi error aaye
-    // jaise user login nahi hai, token invalid hai, ya clerk error
-    // toh user ko unauthorized hi bolenge
-    return res.json({
-      success: false,
-      message: "not authorized",
-    });
+    return res.status(401).json({ success: false, message: "Not authorized — invalid token" });
+  }
+};
+
+// ─── Protect admin-only routes ─────────────────────────────────────────────────
+// Runs after protectRoute (or independently) — checks isAdmin flag in DB
+export const protectAdmin = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ success: false, message: "Not authorized — no token" });
+    }
+
+    const token = authHeader.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    const user = await User.findById(decoded.userId).select("isAdmin");
+    if (!user || !user.isAdmin) {
+      return res.status(403).json({ success: false, message: "Not authorized — admin only" });
+    }
+
+    req.userId = decoded.userId;
+    next();
+  } catch (error) {
+    return res.status(401).json({ success: false, message: "Not authorized — invalid token" });
   }
 };
