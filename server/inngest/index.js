@@ -111,30 +111,34 @@ const sendShowReminders = inngest.createFunction(
       const windowStart = new Date(in8Hours.getTime() - 10 * 60 * 1000);
 
       const reminderTasks = await step.run("prepare-reminder-tasks", async () => {
-        const shows = await Show.find({
-          showTime: { $gte: windowStart, $lte: in8Hours },
-        }).populate("movie");
+  const shows = await Show.find({
+    showDateTime: { $gte: windowStart, $lte: in8Hours },
+  }).populate("movie");
 
-        const tasks = [];
-        for (const show of shows) {
-          if (!show.movie || !show.occupiedSeats) continue;
-          const userIds = [...new Set(Object.values(show.occupiedSeats))];
-          if (!userIds.length) continue;
+  const tasks = [];
 
-          const users = await User.find({ _id: { $in: userIds } }).select("name email");
-          for (const user of users) {
-            if (user.email) {
-              tasks.push({
-                userEmail: user.email,
-                userName: user.name,
-                movieTitle: show.movie.title,
-                showTime: show.showTime,
-              });
-            }
-          }
-        }
-        return tasks;
-      });
+  for (const show of shows) {
+    if (!show.movie || !show.occupiedSeats) continue;
+
+    const userIds = [...new Set(Object.values(show.occupiedSeats))];
+    if (!userIds.length) continue;
+
+    const users = await User.find({ _id: { $in: userIds } }).select("name email");
+
+    for (const user of users) {
+      if (user.email) {
+        tasks.push({
+          userEmail: user.email,
+          userName: user.name,
+          movieTitle: show.movie.title,
+          showTime: show.showDateTime,
+        });
+      }
+    }
+  }
+
+  return tasks;
+});
 
       if (!reminderTasks.length) return { sent: 0, message: "No reminders to send." };
 
