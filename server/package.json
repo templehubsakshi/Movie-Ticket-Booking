@@ -19,7 +19,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
-    "inngest": "^3.49.3",
+    "inngest": "^3.54.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.0.0",
     "nodemailer": "^7.0.12",
