@@ -16,13 +16,18 @@ export const getUserBookings = async (req, res) => {
 };
 
 // POST /api/user/update-favorite  — toggle a movie in favorites
-// movieId must be the Movie._id (String / TMDB ID), NOT the show's _id
 export const updateFavorite = async (req, res) => {
   try {
     const { movieId } = req.body;
     if (!movieId) return res.status(400).json({ success: false, message: "movieId is required" });
 
-    const movieIdStr = String(movieId); // ensure string — Movie._id is String type
+    const movieIdStr = String(movieId);
+
+    // HIGH-08 fix: verify the movie actually exists before adding to favorites.
+    const movieExists = await Movie.exists({ _id: movieIdStr });
+    if (!movieExists) {
+      return res.status(404).json({ success: false, message: "Movie not found." });
+    }
 
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
@@ -48,9 +53,59 @@ export const getFavorites = async (req, res) => {
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
-    // favorites is String[] of Movie._id values
     const movies = await Movie.find({ _id: { $in: user.favorites } });
     res.json({ success: true, movies });
+  } catch (error) {
+    console.error(error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// PUT /api/user/update-profile — update name and/or image URL
+export const updateProfile = async (req, res) => {
+  try {
+    const { name, image } = req.body;
+    if (!name && !image) {
+      return res.status(400).json({ success: false, message: "name or image is required" });
+    }
+
+    // HIGH-05 fix: trim name and reject whitespace-only or too-long strings.
+    // Previously " ".trim() === "" would silently wipe the user's name.
+    let trimmedName;
+    if (name !== undefined) {
+      trimmedName = name.trim();
+      if (!trimmedName) {
+        return res.status(400).json({ success: false, message: "Name cannot be empty or whitespace." });
+      }
+      if (trimmedName.length > 100) {
+        return res.status(400).json({ success: false, message: "Name too long (max 100 characters)." });
+      }
+    }
+
+    // Validate image URL — must be a valid https:// URL.
+    if (image) {
+      try {
+        const parsed = new URL(image.trim());
+        if (parsed.protocol !== "https:") {
+          return res.status(400).json({ success: false, message: "Image URL must use HTTPS." });
+        }
+      } catch {
+        return res.status(400).json({ success: false, message: "Invalid image URL." });
+      }
+    }
+
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+    if (trimmedName) user.name  = trimmedName;
+    if (image)       user.image = image.trim();
+
+    await user.save();
+    res.json({
+      success: true,
+      message: "Profile updated",
+      user: { _id: user._id, name: user.name, image: user.image, email: user.email, isAdmin: user.isAdmin },
+    });
   } catch (error) {
     console.error(error.message);
     res.status(500).json({ success: false, message: error.message });

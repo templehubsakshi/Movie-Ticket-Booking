@@ -1,6 +1,7 @@
 import express from "express";
 import {
   addShow,
+  deleteShow,
   getNowPlayingMovies,
   getShow,
   getShows,
@@ -44,5 +45,8 @@ showRouter.get("/all", getShows);
 // Source: MongoDB Show + Movie collections
 // -----------------------
 showRouter.get("/:movieId", getShow);
+
+// DELETE /api/show/:showId — admin only
+showRouter.delete("/:showId", protectAdmin, deleteShow);
 
 export default showRouter;

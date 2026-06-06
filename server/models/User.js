@@ -4,10 +4,11 @@ const userSchema = new mongoose.Schema(
   {
     name:     { type: String, required: true, trim: true },
     email:    { type: String, required: true, unique: true, lowercase: true, trim: true },
-    password: { type: String, required: true, minlength: 6 },
+    // IMPROVEMENT: select: false — password by default queries mein nahi aayega
+    // Login mein explicitly .select("+password") use karo
+    password: { type: String, required: true, minlength: 6, select: false },
     image:    { type: String, default: "" },
     isAdmin:  { type: Boolean, default: false },
-    // Movie._id is a String (TMDB numeric ID stored as string), so ref must be String too
     favorites: [{ type: String, ref: "Movie" }],
   },
   { timestamps: true }

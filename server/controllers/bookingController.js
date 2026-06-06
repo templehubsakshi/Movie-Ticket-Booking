@@ -1,154 +1,133 @@
-import { inngest } from "../inngest/index.js"; // Background job scheduler
-import Booking from "../models/Booking.js"; // Booking collection in MongoDB
-import Show from "../models/Show.js"; // Show collection in MongoDB
-import stripe from "stripe"; // Payment library, abhi comment karenge
+import { inngest } from "../inngest/index.js";
+import Booking from "../models/Booking.js";
+import Show from "../models/Show.js";
+import mongoose from "mongoose";
+import Stripe from "stripe";
 
-// Function to check if selected seats are available
-// showId → req.body from frontend
-// selectedSeats → array from frontend (selected seats)
-const checkSeatsAvailability = async (showId, selectedSeats) => {
-  try {
-    // Fetch show details from DB
-    const showData = await Show.findById(showId); 
-    if (!showData) return false; // Show not found
+// MED-08 fix: instantiate Stripe once at module level, not per request.
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-    // Get already booked seats
-    const occupiedSeats = showData.occupiedSeats;
-
-    // Check if any selected seat is already booked
-    const isAnySeatTaken = selectedSeats.some((seat) => occupiedSeats[seat]);
-
-    // True → seats available, False → at least one seat taken
-    return !isAnySeatTaken;
-  } catch (error) {
-    console.log(error.message);
-    return false;
-  }
-};
+// CRIT-03: Allowlist for valid seat IDs — rows A–J, columns 1–9.
+// Prevents NoSQL injection and prototype pollution via user-supplied seat keys.
+const SEAT_RE = /^[A-J][1-9]$/;
 
 // ===================== CREATE BOOKING =====================
 export const createBooking = async (req, res) => {
   try {
-    // -----------------------------
-    // Data from frontend / auth
-    // -----------------------------
-    const userId = req.userId; // Set by protectRoute middleware
-    const { showId, selectedSeats } = req.body; 
-    // POST body → { showId, selectedSeats: ["A1", "A2"] }
-    const { origin } = req.headers; 
-    // Frontend origin URL → redirect/payment links
+    const userId = req.userId;
+    const { showId, selectedSeats } = req.body;
 
-    // -----------------------------
-    // Check seat availability
-    // -----------------------------
-    const isAvailable = await checkSeatsAvailability(showId, selectedSeats);
-    if (!isAvailable) {
-      return res.json({
-        success: false,
-        message: "Selected Seats are not available.",
-      });
+    if (!showId || !selectedSeats || !Array.isArray(selectedSeats) || selectedSeats.length === 0) {
+      return res.status(400).json({ success: false, message: "showId and selectedSeats are required." });
+    }
+    if (selectedSeats.length > 5) {
+      return res.status(400).json({ success: false, message: "Maximum 5 seats allowed per booking." });
     }
 
-    // -----------------------------
-    // Get show details including movie info
-    // -----------------------------
-    const showData = await Show.findById(showId).populate("movie"); 
-    // populate("movie") → Show model me movie field ObjectId hai
-    // Populate se actual movie details fetch hote hain (title, poster etc.)
+    // CRIT-03: Validate every seat ID against the allowlist before touching DB.
+    for (const seat of selectedSeats) {
+      if (typeof seat !== "string" || !SEAT_RE.test(seat)) {
+        return res.status(400).json({ success: false, message: `Invalid seat identifier: "${seat}".` });
+      }
+    }
 
-    // -----------------------------
-    // Create new booking in DB
-    // -----------------------------
+    // Atomic seat reservation — prevents double booking race condition
+    const seatCondition = {};
+    const seatUpdate = {};
+    selectedSeats.forEach((seat) => {
+      seatCondition[`occupiedSeats.${seat}`] = { $exists: false };
+      seatUpdate[`occupiedSeats.${seat}`] = userId;
+    });
+
+    const updatedShow = await Show.findOneAndUpdate(
+      { _id: showId, ...seatCondition },
+      { $set: seatUpdate },
+      { new: true }
+    ).populate("movie");
+
+    if (!updatedShow) {
+      return res.status(409).json({ success: false, message: "One or more selected seats are no longer available." });
+    }
+
     const booking = await Booking.create({
-      user: userId, // logged-in user
-      show: showId, // show reference
-      amount: showData.showPrice * selectedSeats.length, // total price
-      bookedSeats: selectedSeats, // array of seat numbers
+      user: new mongoose.Types.ObjectId(userId),
+      show: showId,
+      amount: updatedShow.showPrice * selectedSeats.length,
+      bookedSeats: selectedSeats,
     });
 
-    // -----------------------------
-    // Update Show model with booked seats
-    // -----------------------------
-    selectedSeats.map((seat) => {
-      showData.occupiedSeats[seat] = userId; 
-      // key = seat number, value = who booked
-    });
+    // CRIT-02 fix: Use server-side CLIENT_URL env var — never trust req.headers.origin.
+    // An attacker could send Origin: https://evil.com and redirect victims post-payment.
+    const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
 
-    showData.markModified("occupiedSeats"); 
-    // Important → mongoose nested object change
-    await showData.save(); // Save changes to DB
-
-    // -----------------------------
-    // STRIPE PAYMENT (Commented for now)
-    // -----------------------------
-
-    // Create Stripe instance
-    const stripeInstance = new stripe(process.env.STRIPE_SECRET_KEY);
-    // Define items for payment
-    const line_items = [
-      {
-        price_data: {
-          currency: "usd",
-          product_data: {
-            name: showData.movie.title, // Movie title from populated show
+    const session = await stripe.checkout.sessions.create({
+      success_url: `${clientUrl}/loading/my-bookings`,
+      cancel_url:  `${clientUrl}/my-bookings`,
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: { name: updatedShow.movie.title },
+            unit_amount: Math.round(booking.amount * 100),
           },
-          unit_amount: Math.floor(booking.amount) * 100, 
-          // Stripe expects cents
+          quantity: 1,
         },
-        quantity: 1,
-      },
-    ];
-
-    // Create Stripe checkout session
-    const session = await stripeInstance.checkout.sessions.create({
-      success_url: `${origin}/loading/my-bookings`,
-      // Redirect on success
-      cancel_url: `${origin}/my-bookings`,
-      // Redirect on cancel
-      line_items: line_items,
-      mode: "payment", // one-time payment
+      ],
+      mode: "payment",
       metadata: { bookingId: booking._id.toString() },
-      // Link booking with Stripe session
-      expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
-      // 30 minutes expiry
+      // HIGH-06 fix: Stripe session expires in 31 min — Inngest checks after 31 min too.
+      // Previously Stripe was 30 min but Inngest deleted bookings after only 10 min,
+      // meaning users who paid between minute 10–30 were charged with no booking.
+      expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
     });
 
-    // Save payment link in Booking document
     booking.paymentLink = session.url;
     await booking.save();
-res.json({ success: true, url: session.url });
-    // Schedule background job to check payment after 10 minutes
+
     await inngest.send({
       name: "app/checkpayment",
       data: { bookingId: booking._id.toString() },
     });
-   
 
-    // -----------------------------
-    // Response to frontend
-    // -----------------------------
-    // res.json({ success: true, message: "Booking created successfully." });
+    return res.json({ success: true, url: session.url });
 
   } catch (error) {
-    console.log(error.message);
-    res.json({ success: false, message: error.message });
+    console.error("createBooking error:", error.message);
+    return res.status(500).json({ success: false, message: "Booking failed. Please try again." });
   }
 };
 
 // ===================== GET OCCUPIED SEATS =====================
 export const getOccupiedSeats = async (req, res) => {
   try {
-    const { showId } = req.params; 
-    // URL parameter → GET /api/booking/seats/:showId
+    const { showId } = req.params;
 
     const showData = await Show.findById(showId);
+    if (!showData) {
+      return res.status(404).json({ success: false, message: "Show not found." });
+    }
 
-    const occupiedSeats = Object.keys(showData.occupiedSeats); 
-    // Only keys → seat numbers booked
+    const occupiedSeats = [...showData.occupiedSeats.keys()];
+    return res.json({ success: true, occupiedSeats });
 
-    res.json({ success: true, occupiedSeats });
   } catch (error) {
-    console.log(error.message);
-    res.json({ success: false, message: error.message });
+    console.error("getOccupiedSeats error:", error.message);
+    return res.status(500).json({ success: false, message: "Could not fetch seats." });
+  }
+};
+
+// ===================== CHECK PAYMENT (admin only) =====================
+// LOW-04 fix: moved inline route handler to controller for consistency.
+export const triggerPaymentCheck = async (req, res) => {
+  const { bookingId } = req.body;
+  if (!bookingId) {
+    return res.status(400).json({ error: "bookingId is required" });
+  }
+  try {
+    await inngest.send({ name: "app/checkpayment", data: { bookingId } });
+    return res.json({ message: "Payment check event sent to Inngest" });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: "Failed to trigger Inngest event" });
   }
 };
