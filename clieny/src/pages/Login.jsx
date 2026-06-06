@@ -37,7 +37,7 @@ const Login = () => {
     try {
       const { data } = await axios.post("/api/auth/login", form);
       if (data.success) {
-        login(data.token, data.user);
+        login(data.user);
         toast.success(`Welcome back, ${data.user.name}!`);
         navigate(from, { replace: true });
       } else {

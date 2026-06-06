@@ -6,28 +6,25 @@ import { useAppContext } from "../../context/AppContext";
 
 const ListBookings = () => {
   const currency = import.meta.env.VITE_CURRENCY;
+  // BUG FIX: getToken hata diya — axios interceptor handle karta hai
+  const { axios, user } = useAppContext();
 
-  const { axios, getToken, user } = useAppContext();
-
-  const [bookings, setBookings] = useState([]);
+  const [bookings, setBookings]   = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const getAllBookings = async () => {
     try {
-      const { data } = await axios.get("/api/admin/all-bookings", {
-        headers: { Authorization: `Bearer ${await getToken()}` },
-      });
-      setBookings(data.bookings);
+      const { data } = await axios.get("/api/admin/all-bookings");
+      if (data.success) setBookings(data.bookings);
     } catch (error) {
       console.error("Error fetching bookings:", error);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   useEffect(() => {
-    if (user) {
-      getAllBookings();
-    }
+    if (user) getAllBookings();
   }, [user]);
 
   return !isLoading ? (
@@ -45,24 +42,25 @@ const ListBookings = () => {
             </tr>
           </thead>
           <tbody className="text-sm font-light">
-            {bookings.map((item, index) => (
-              <tr
-                key={index}
-                className="border-b border-primary/20 bg-primary/5 even:bg-primary/10"
-              >
-                <td className="p-2 min-w-45 pl-5">{item?.user?.name}</td>
-                <td className="p-2">{item?.show?.movie?.title}</td>
-                <td className="p-2">{dateFormat(item?.show?.showDateTime)}</td>
-                <td className="p-2">
-                  {Object.keys(item.bookedSeats)
-                    .map((seat) => item.bookedSeats[seat])
-                    .join(", ")}
-                </td>
-                <td className="p-2">
-                  {currency} {item.amount}
-                </td>
+            {bookings.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="text-center py-8 text-gray-500">No bookings yet.</td>
               </tr>
-            ))}
+            ) : (
+              bookings.map((item, index) => (
+                <tr key={index} className="border-b border-primary/20 bg-primary/5 even:bg-primary/10">
+                  <td className="p-2 min-w-45 pl-5">{item?.user?.name}</td>
+                  <td className="p-2">{item?.show?.movie?.title}</td>
+                  <td className="p-2">{dateFormat(item?.show?.showDateTime)}</td>
+                  <td className="p-2">
+                    {Array.isArray(item.bookedSeats)
+                      ? item.bookedSeats.join(", ")
+                      : Object.values(item.bookedSeats).join(", ")}
+                  </td>
+                  <td className="p-2">{currency} {item.amount}</td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

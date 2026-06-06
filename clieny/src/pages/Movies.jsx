@@ -1,106 +1,74 @@
 import BlurCircle from "../components/BlurCircle";
-// BlurCircle ek UI-only component hai
-// Iska backend ya data se koi lena-dena nahi
-// Sirf background me blur effect dikhane ke liye use hota hai
-
 import MovieCard from "../components/MovieCard";
-// MovieCard ek reusable component hai
-// Ye ek single movie/show ka card UI me dikhata hai
-// Isko data Movies.jsx se props ke through milta hai
-
+import Loading from "../components/Loading";
 import { useAppContext } from "../context/AppContext";
-// useAppContext se hum GLOBAL state access karte hain
-// Ye data AppContext.jsx me store hota hai
+import { useState, useMemo } from "react";
+import { SearchIcon, XIcon } from "lucide-react";
 
 const Movies = () => {
+  const { shows, isShowsLoading } = useAppContext();
+  const [search, setSearch] = useState("");
 
-  // 👇 shows yaha AppContext se aa raha hai
-  // AppContext ke andar fetchShows() function hai
-  // fetchShows() backend API call karta hai:
-  //
-  // GET /api/show/all
-  //
-  // Backend flow:
-  // Route -> Controller -> Show Model
-  // Show.find().populate("movie")
-  //
-  // Isliye har "show" ke andar "movie" ka data bhi hota hai
-  const { shows } = useAppContext();
+  // Filter movies by search query
+  const filtered = useMemo(() => {
+    if (!search.trim()) return shows;
+    const q = search.toLowerCase();
+    return shows.filter(
+      (m) =>
+        m.title?.toLowerCase().includes(q) ||
+        m.genres?.some((g) => g.name?.toLowerCase().includes(q))
+    );
+  }, [shows, search]);
 
-  // Agar backend se shows aa gaye (array empty nahi hai)
-  if (shows.length > 0) {
-    return (
-      <div className="relative my-40 mb-60 px-6 md:px-16 lg:px-40 xl:px-44 overflow-hidden min-h-[80vh]">
+  if (isShowsLoading) return <Loading />;
 
-        {/* Background blur circles – sirf UI ke liye */}
-        <BlurCircle top="150px" left="0" />
-        <BlurCircle bottom="50px" right="50px" />
+  return (
+    <div className="relative my-40 mb-60 px-6 md:px-16 lg:px-40 xl:px-44 overflow-hidden min-h-[80vh]">
+      <BlurCircle top="150px" left="0" />
+      <BlurCircle bottom="50px" right="50px" />
 
-        <h1 className="text-lg font-medium my-4">
-          Now Showing
-        </h1>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 my-4">
+        <h1 className="text-lg font-medium">Now Showing</h1>
 
-        <div className="flex flex-wrap max-sm:justify-center gap-8">
-
-          {/*
-            🔥 MOST IMPORTANT PART — map()
-            
-            shows ek ARRAY hai
-            Har element ek SHOW object hai
-            
-            Example ek show ka structure (backend se):
-            {
-              _id: "showId",
-              movie: {
-                _id,
-                title,
-                poster_path,
-                backdrop_path,
-                release_date,
-                genres,
-                runtime,
-                vote_average
-              },
-              showDateTime,
-              showPrice,
-              occupiedSeats
-            }
-            
-            Ye data backend se aa raha hai:
-            Show.find().populate("movie")
-          */}
-
-          {shows.map((movie) => (
-            // ⚠️ yaha variable ka naam "movie" hai
-            // lekin actually ye ek SHOW object hai
-            // (andar movie populated hoti hai)
-
-            <MovieCard
-              key={movie._id}
-              // React ko batata hai ki har card unique hai
-              // yaha Show ka _id use ho raha hai
-
-              movie={movie}
-              // pura show object MovieCard ko diya ja raha hai
-              // MovieCard ke andar:
-              // movie.movie.title  -> Movie title
-              // movie.movie.backdrop_path -> Movie image
-              // movie._id -> Show id (routing ke liye)
-            />
-          ))}
+        {/* Search bar */}
+        <div className="relative w-full sm:w-72">
+          <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Search movies or genres…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-white/5 border border-white/10 rounded-full pl-9 pr-9 py-2 text-sm
+              placeholder-gray-500 focus:outline-none focus:border-primary/50 transition"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition"
+            >
+              <XIcon className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
-    );
-  }
 
-  // 👇 Agar backend se koi show nahi aaya
-  // ya database empty hai
-  // ya API fail ho gayi
-  return (
-    <div className="flex flex-col items-center justify-center h-screen">
-      <h1 className="text-3xl font-bold text-center">
-        No movies available
-      </h1>
+      {filtered.length > 0 ? (
+        <div className="flex flex-wrap max-sm:justify-center gap-8 mt-2">
+          {filtered.map((movie) => (
+            <MovieCard key={movie._id} movie={movie} />
+          ))}
+        </div>
+      ) : shows.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-32">
+          <h1 className="text-3xl font-bold text-center">No movies available</h1>
+          <p className="text-gray-400 mt-2 text-sm">Check back soon for upcoming shows.</p>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center py-32">
+          <p className="text-xl font-semibold">No results for "{search}"</p>
+          <p className="text-gray-400 mt-2 text-sm">Try a different title or genre.</p>
+        </div>
+      )}
     </div>
   );
 };

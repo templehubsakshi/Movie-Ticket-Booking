@@ -1,18 +1,11 @@
 import AdminNavbar from "../../components/admin/AdminNavbar";
 import AdminSidebar from "../../components/admin/AdminSidebar";
 import { Outlet } from "react-router-dom";
-import { useAppContext } from "../../context/AppContext";
-import { useEffect } from "react";
-import Loading from "../../components/Loading";
 
+// AdminRoute (in ProtectedRoute.jsx) already verified isAdmin before rendering Layout.
+// No need to re-check here — just render the shell.
 const Layout = () => {
-  const { isAdmin, fetchIsAdmin } = useAppContext();
-
-  useEffect(() => {
-    fetchIsAdmin();
-  }, []);
-
-  return isAdmin ? (
+  return (
     <>
       <AdminNavbar />
       <div className="flex">
@@ -22,8 +15,6 @@ const Layout = () => {
         </div>
       </div>
     </>
-  ) : (
-    <Loading />
   );
 };
 

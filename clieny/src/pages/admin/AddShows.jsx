@@ -1,226 +1,124 @@
-// React hooks for state and lifecycle
 import { useEffect, useState } from "react";
-
-// Loading component (jab data nahi aata)
 import Loading from "../../components/Loading";
-
-// Admin page title component
 import Title from "../../components/admin/Title";
-
-// Icons used in UI
 import { CheckIcon, DeleteIcon, StarIcon } from "lucide-react";
-
-// Utility function: converts numbers like 12000 → 12k
 import { kConverter } from "../../lib/kConverter";
-
-// Global App Context (axios, auth token, user, image base url)
 import { useAppContext } from "../../context/AppContext";
-
-// Toast notifications (success / error messages)
 import toast from "react-hot-toast";
 
 const AddShows = () => {
-  /**
-   * Context se common cheezein mil rahi hain:
-   * axios        → API calls ke liye
-   * getToken     → JWT token lene ke liye
-   * user         → current logged-in user (admin)
-   * image_base_url → TMDB images ka base path
-   */
-  const { axios, getToken, user, image_base_url } = useAppContext();
-
-  // Currency symbol (₹ / $) .env file se
+  const { axios, user, image_base_url } = useAppContext();
   const currency = import.meta.env.VITE_CURRENCY;
 
-  /**
-   * =====================
-   * STATE VARIABLES
-   * =====================
-   */
-
-  // Abhi chal rahi movies (TMDB se)
   const [nowPlayingMovies, setNowPlayingMovies] = useState([]);
-
-  // Admin ne jo movie select ki hai uski ID
-  const [selectedMovie, setSelectedMovie] = useState(null);
-
-  /**
-   * Selected date & time ka structure:
-   * {
-   *   "2025-01-10": ["14:30", "18:00"],
-   *   "2025-01-11": ["16:00"]
-   * }
-   */
+  const [selectedMovie, setSelectedMovie]       = useState(null);
   const [dateTimeSelection, setDateTimeSelection] = useState({});
+  const [dateTimeInput, setDateTimeInput]        = useState("");
+  // LOW-11 fix: store showPrice as number, not string.
+  const [showPrice, setShowPrice]                = useState(0);
+  const [addingShow, setAddingShow]              = useState(false);
+  const [isFetching, setIsFetching]              = useState(true);
 
-  // datetime-local input ka value
-  const [dateTimeInput, setDateTimeInput] = useState("");
-
-  // Show ka ticket price
-  const [showPrice, setShowPrice] = useState("");
-
-  // Submit ke time button disable karne ke liye
-  const [addingShow, setAddingShow] = useState(false);
-
-  /**
-   * =====================
-   * FETCH NOW PLAYING MOVIES
-   * =====================
-   */
   const fetchNowPlayingMovies = async () => {
     try {
-      const { data } = await axios.get("/api/show/now-playing", {
-        headers: {
-          Authorization: `Bearer ${await getToken()}`,
-        },
-      });
-
-      // Agar API successful ho
-      if (data.success) {
-        setNowPlayingMovies(data.movies);
-      }
+      const { data } = await axios.get("/api/show/now-playing");
+      if (data.success) setNowPlayingMovies(data.movies);
     } catch (error) {
       console.error("Error fetching movies:", error);
+      toast.error("Could not load movies. Please try again.");
+    } finally {
+      setIsFetching(false);
     }
   };
 
-  /**
-   * =====================
-   * ADD DATE & TIME
-   * =====================
-   */
   const handleDateTimeAdd = () => {
-    // Agar input empty hai to kuch nahi karna
     if (!dateTimeInput) return;
-
-    // "2025-01-10T14:30" → ["2025-01-10", "14:30"]
     const [date, time] = dateTimeInput.split("T");
-
-    // Safety check
     if (!date || !time) return;
 
+    // MED-09: prevent adding past showtimes on the client side too.
+    if (new Date(dateTimeInput) <= new Date()) {
+      return toast.error("Showtime must be in the future.");
+    }
+
     setDateTimeSelection((prev) => {
-      // Agar date already exist karti hai
       const times = prev[date] || [];
-
-      // Duplicate time add nahi hone dena
-      if (!times.includes(time)) {
-        return {
-          ...prev,
-          [date]: [...times, time],
-        };
-      }
-
-      return prev;
+      if (times.includes(time)) return prev;
+      return { ...prev, [date]: [...times, time] };
     });
+    setDateTimeInput("");
   };
 
-  /**
-   * =====================
-   * REMOVE TIME
-   * =====================
-   */
   const handleRemoveTime = (date, time) => {
     setDateTimeSelection((prev) => {
-      // Selected date ke andar se time remove karna
-      const filteredTimes = prev[date].filter((t) => t !== time);
-
-      // Agar kisi date me koi time nahi bacha
-      // to us date ko bhi object se remove kar do
-      if (filteredTimes.length === 0) {
+      const filtered = prev[date].filter((t) => t !== time);
+      if (filtered.length === 0) {
         const { [date]: _, ...rest } = prev;
         return rest;
       }
-
-      return {
-        ...prev,
-        [date]: filteredTimes,
-      };
+      return { ...prev, [date]: filtered };
     });
   };
 
-  /**
-   * =====================
-   * SUBMIT SHOW
-   * =====================
-   */
   const handleSubmit = async () => {
+    if (!selectedMovie || Object.keys(dateTimeSelection).length === 0 || !showPrice) {
+      return toast.error("Please select a movie, add at least one showtime, and set a price.");
+    }
+    // MED-09 fix: client-side guard for price <= 0.
+    if (showPrice <= 0) {
+      return toast.error("Show price must be greater than 0.");
+    }
+
+    setAddingShow(true);
     try {
-      setAddingShow(true);
-
-      // Validation
-      if (
-        !selectedMovie ||
-        Object.keys(dateTimeSelection).length === 0 ||
-        !showPrice
-      ) {
-        return toast("Missing required fields");
-      }
-
-      /**
-       * Backend ko is format me data chahiye:
-       * [
-       *   { date: "2025-01-10", time: ["14:30", "18:00"] }
-       * ]
-       */
-      const showsInput = Object.entries(dateTimeSelection).map(
-        ([date, time]) => ({ date, time })
-      );
-
-      const payload = {
+      const showsInput = Object.entries(dateTimeSelection).map(([date, time]) => ({ date, time }));
+      const { data } = await axios.post("/api/show/add", {
         movieId: selectedMovie,
         showsInput,
-        showPrice: Number(showPrice),
-      };
-
-      // API call to create shows
-      const { data } = await axios.post("/api/show/add", payload, {
-        headers: {
-          Authorization: `Bearer ${await getToken()}`,
-        },
+        showPrice,
       });
 
       if (data.success) {
         toast.success(data.message);
-
-        // Form reset
         setSelectedMovie(null);
         setDateTimeSelection({});
-        setShowPrice("");
+        setShowPrice(0);
       } else {
         toast.error(data.message);
       }
     } catch (error) {
       console.error("Submission error:", error);
       toast.error("An error occurred. Please try again.");
+    } finally {
+      setAddingShow(false);
     }
-
-    setAddingShow(false);
   };
 
-  /**
-   * =====================
-   * FETCH MOVIES ON LOAD
-   * =====================
-   */
   useEffect(() => {
-    if (user) {
-      fetchNowPlayingMovies();
-    }
+    if (user) fetchNowPlayingMovies();
   }, [user]);
 
-  /**
-   * =====================
-   * UI
-   * =====================
-   */
-  return nowPlayingMovies.length > 0 ? (
+  if (isFetching) return <Loading />;
+
+  if (!nowPlayingMovies.length) {
+    return (
+      <div className="flex flex-col items-center justify-center h-60 text-gray-400">
+        <p className="text-lg">No now-playing movies found from TMDB.</p>
+        <button
+          onClick={() => { setIsFetching(true); fetchNowPlayingMovies(); }}
+          className="mt-4 px-6 py-2 bg-primary rounded-full text-sm text-white hover:bg-primary-dull transition"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  return (
     <>
       <Title text1="Add" text2="Shows" />
 
-      {/* MOVIE LIST */}
       <p className="mt-10 text-lg font-medium">Now Playing Movies</p>
-
       <div className="overflow-x-auto pb-4">
         <div className="flex flex-wrap gap-4 mt-4 w-max">
           {nowPlayingMovies.map((movie) => (
@@ -229,14 +127,7 @@ const AddShows = () => {
               onClick={() => setSelectedMovie(movie.id)}
               className="relative max-w-40 cursor-pointer hover:-translate-y-1 transition"
             >
-              {/* Movie Poster */}
-              <img
-                src={image_base_url + movie.poster_path}
-                alt="poster"
-                className="rounded-lg"
-              />
-
-              {/* Rating & Votes */}
+              <img src={image_base_url + movie.poster_path} alt="poster" className="rounded-lg" />
               <div className="absolute bottom-0 w-full bg-black/70 p-2 flex justify-between text-sm">
                 <p className="flex items-center gap-1">
                   <StarIcon className="w-4 h-4 fill-primary text-primary" />
@@ -244,14 +135,11 @@ const AddShows = () => {
                 </p>
                 <p>{kConverter(movie.vote_count)} Votes</p>
               </div>
-
-              {/* Selected check */}
               {selectedMovie === movie.id && (
                 <div className="absolute top-2 right-2 bg-primary rounded-full p-1">
                   <CheckIcon className="text-white" />
                 </div>
               )}
-
               <p className="font-medium truncate">{movie.title}</p>
               <p className="text-sm text-gray-400">{movie.release_date}</p>
             </div>
@@ -259,56 +147,67 @@ const AddShows = () => {
         </div>
       </div>
 
-      {/* PRICE INPUT */}
       <div className="mt-8">
         <label>Show Price</label>
         <div className="flex gap-2 border px-3 py-2 rounded">
           <span>{currency}</span>
+          {/* LOW-11 fix: onChange stores number; min=1 enforces positive price */}
           <input
             type="number"
-            min={0}
+            min={1}
+            step="0.01"
             value={showPrice}
-            onChange={(e) => setShowPrice(e.target.value)}
+            onChange={(e) => setShowPrice(Number(e.target.value))}
           />
         </div>
       </div>
 
-      {/* DATE TIME INPUT */}
-      <div className="mt-6">
+      <div className="mt-6 flex gap-2 items-center">
         <input
           type="datetime-local"
           value={dateTimeInput}
           onChange={(e) => setDateTimeInput(e.target.value)}
         />
-        <button onClick={handleDateTimeAdd}>Add Time</button>
+        <button
+          onClick={handleDateTimeAdd}
+          className="px-4 py-2 bg-primary text-white text-sm rounded hover:bg-primary-dull transition"
+        >
+          Add Time
+        </button>
       </div>
 
-      {/* SELECTED DATES & TIMES */}
       {Object.keys(dateTimeSelection).length > 0 && (
-        <div className="mt-6">
+        <div className="mt-6 space-y-2">
           {Object.entries(dateTimeSelection).map(([date, times]) => (
             <div key={date}>
-              <p>{date}</p>
-              {times.map((time) => (
-                <span key={time}>
-                  {time}
-                  <DeleteIcon
-                    onClick={() => handleRemoveTime(date, time)}
-                  />
-                </span>
-              ))}
+              <p className="font-medium text-sm text-gray-300">{date}</p>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {times.map((time) => (
+                  <span
+                    key={time}
+                    className="flex items-center gap-1 px-3 py-1 bg-primary/20 rounded-full text-sm"
+                  >
+                    {time}
+                    <DeleteIcon
+                      className="w-3 h-3 cursor-pointer hover:text-red-400"
+                      onClick={() => handleRemoveTime(date, time)}
+                    />
+                  </span>
+                ))}
+              </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* SUBMIT BUTTON */}
-      <button onClick={handleSubmit} disabled={addingShow}>
-        Add Show
+      <button
+        onClick={handleSubmit}
+        disabled={addingShow}
+        className="mt-8 px-8 py-3 bg-primary text-white rounded-full font-medium hover:bg-primary-dull transition disabled:opacity-60 disabled:cursor-not-allowed"
+      >
+        {addingShow ? "Adding…" : "Add Show"}
       </button>
     </>
-  ) : (
-    <Loading />
   );
 };
 

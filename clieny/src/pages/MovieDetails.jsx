@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import BlurCircle from "../components/BlurCircle";
-import { Heart, PlayCircleIcon, StarIcon } from "lucide-react";
+import { Heart, PlayCircleIcon, StarIcon, UserIcon } from "lucide-react";
 import timeFormat from "../lib/timeFormat";
 import DateSelect from "../components/DateSelect";
 import MovieCard from "../components/MovieCard";
@@ -27,10 +27,7 @@ const MovieDetails = () => {
   const getShow = async () => {
     try {
       setNotFound(false);
-
       const { data } = await axios.get(`/api/show/${id}`);
-      console.log("Show response:", data);
-
       if (data.success && data.movie) {
         setShow(data);
       } else {
@@ -47,11 +44,7 @@ const MovieDetails = () => {
   const handleFavorite = async () => {
     try {
       if (!user) return toast.error("Please login to proceed");
-
-      const { data } = await axios.post("/api/user/update-favorite", {
-        movieId: id,
-      });
-
+      const { data } = await axios.post("/api/user/update-favorite", { movieId: id });
       if (data.success) {
         await fetchFavoriteMovies();
         toast.success(data.message);
@@ -61,22 +54,15 @@ const MovieDetails = () => {
     }
   };
 
-  useEffect(() => {
-    getShow();
-  }, [id]);
+  useEffect(() => { getShow(); }, [id]);
 
   if (notFound) {
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center px-6 text-center">
         <p className="text-2xl font-semibold">Movie not found</p>
-        <p className="text-gray-400 mt-2">
-          This show exists, but its movie details are missing.
-        </p>
+        <p className="text-gray-400 mt-2">This show exists, but its movie details are missing.</p>
         <button
-          onClick={() => {
-            navigate("/movies");
-            scrollTo(0, 0);
-          }}
+          onClick={() => { navigate("/movies"); scrollTo(0, 0); }}
           className="mt-6 px-6 py-3 text-sm bg-primary hover:bg-primary-dull transition rounded-md font-medium cursor-pointer"
         >
           Back to Movies
@@ -85,9 +71,12 @@ const MovieDetails = () => {
     );
   }
 
-  if (!show || !show.movie) {
-    return <Loading />;
-  }
+  if (!show || !show.movie) return <Loading />;
+
+  // LOW-09 fix: use actual movie language instead of hardcoded "ENGLISH".
+  const languageLabel = show.movie?.original_language
+    ? show.movie.original_language.toUpperCase()
+    : "UNKNOWN";
 
   return (
     <div className="px-6 md:px-16 lg:px-40 pt-30 md:pt-50">
@@ -100,7 +89,9 @@ const MovieDetails = () => {
 
         <div className="relative flex flex-col gap-3">
           <BlurCircle top="-100px" left="-100px" />
-          <p className="text-primary">ENGLISH</p>
+
+          {/* LOW-09 fix: dynamic language from movie data */}
+          <p className="text-primary">{languageLabel}</p>
 
           <h1 className="text-4xl font-semibold max-w-96 text-balance">
             {show.movie?.title || "Untitled Movie"}
@@ -119,8 +110,9 @@ const MovieDetails = () => {
 
           <p>
             {timeFormat(show.movie?.runtime || 0)} •{" "}
-            {show.movie?.genres?.map((genre) => genre.name).join(", ") ||
-              "Genres unavailable"}{" "}
+            {show.movie?.genres?.length > 0
+              ? show.movie.genres.map((genre) => genre.name).join(", ")
+              : "Genres unavailable"}{" "}
             •{" "}
             {show.movie?.release_date
               ? new Date(show.movie.release_date).getFullYear()
@@ -128,7 +120,12 @@ const MovieDetails = () => {
           </p>
 
           <div className="flex items-center flex-wrap gap-4 mt-4">
-            <button className="flex items-center gap-2 px-7 py-3 text-sm bg-gray-800 hover:bg-gray-900 transition rounded-md font-medium cursor-pointer active:scale-95">
+            {/* MED-07: "Watch Trailer" button — placeholder, no trailer API integrated yet */}
+            <button
+              className="flex items-center gap-2 px-7 py-3 text-sm bg-gray-800 hover:bg-gray-900 transition rounded-md font-medium cursor-pointer active:scale-95 opacity-50 cursor-not-allowed"
+              disabled
+              title="Trailer feature coming soon"
+            >
               <PlayCircleIcon className="w-5 h-5" />
               Watch Trailer
             </button>
@@ -161,11 +158,23 @@ const MovieDetails = () => {
         <div className="flex items-center gap-4 w-max px-4">
           {show.movie?.casts?.slice(0, 12).map((cast, index) => (
             <div key={index} className="flex flex-col items-center text-center">
-              <img
-                src={image_base_url + cast.profile_path}
-                alt="profile"
-                className="rounded-full h-20 md:h-20 aspect-square object-cover"
-              />
+              {cast.profile_path ? (
+                <img
+                  src={image_base_url + cast.profile_path}
+                  alt={cast.name}
+                  className="rounded-full h-20 md:h-20 aspect-square object-cover"
+                  onError={(e) => {
+                    e.target.style.display = "none";
+                    e.target.nextSibling.style.display = "flex";
+                  }}
+                />
+              ) : null}
+              <div
+                className="rounded-full h-20 w-20 aspect-square bg-gray-700 items-center justify-center"
+                style={{ display: cast.profile_path ? "none" : "flex" }}
+              >
+                <UserIcon className="w-8 h-8 text-gray-400" />
+              </div>
               <p className="font-medium text-xs mt-3">{cast.name}</p>
             </div>
           ))}
@@ -175,7 +184,6 @@ const MovieDetails = () => {
       <DateSelect dateTime={show?.dateTime} id={id} />
 
       <p className="text-lg font-medium mt-20 mb-8">You May Also Like</p>
-
       <div className="flex flex-wrap max-sm:justify-center gap-8">
         {shows.slice(0, 4).map((movie, index) => (
           <MovieCard key={index} movie={movie} />
@@ -184,10 +192,7 @@ const MovieDetails = () => {
 
       <div className="flex justify-center mt-20">
         <button
-          onClick={() => {
-            navigate("/movies");
-            scrollTo(0, 0);
-          }}
+          onClick={() => { navigate("/movies"); scrollTo(0, 0); }}
           className="px-10 py-3 text-sm bg-primary hover:bg-primary-dull transition rounded-md font-medium cursor-pointer"
         >
           Show more

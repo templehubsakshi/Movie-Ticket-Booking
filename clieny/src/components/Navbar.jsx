@@ -1,12 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { SearchIcon, XIcon, MenuIcon, TicketPlus, LogOut } from "lucide-react";
+import { SearchIcon, XIcon, MenuIcon, TicketPlus, LogOut, UserIcon } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 
 const NAV_LINKS = [
   { label: "Home",      to: "/" },
   { label: "Movies",    to: "/movies" },
-  { label: "Releases",  to: "/movies" },
   { label: "Favorites", to: "/favorite" },
 ];
 
@@ -18,7 +17,6 @@ const Navbar = () => {
 
   const { user, logout } = useAppContext();
 
-  // Close dropdown on outside click
   useEffect(() => {
     const handler = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
@@ -35,7 +33,7 @@ const Navbar = () => {
       {/* Logo */}
       <div />
 
-      {/* Nav links — desktop + mobile drawer */}
+      {/* Nav links */}
       <div
         className={`max-md:absolute max-md:top-0 max-md:left-0 max-md:font-medium max-md:text-lg
           z-50 flex flex-col md:flex-row items-center max-md:justify-center gap-8
@@ -80,7 +78,6 @@ const Navbar = () => {
           </button>
         ) : (
           <div className="relative" ref={dropdownRef}>
-            {/* Avatar */}
             <button
               onClick={() => setDropdownOpen((v) => !v)}
               className="flex items-center justify-center w-9 h-9 rounded-full bg-primary text-white
@@ -95,11 +92,9 @@ const Navbar = () => {
               )}
             </button>
 
-            {/* Dropdown */}
             {dropdownOpen && (
               <div className="absolute right-0 mt-2 w-52 bg-black/90 border border-white/10 rounded-xl
                 shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-                {/* User info */}
                 <div className="px-4 py-3 border-b border-white/10">
                   <p className="text-sm font-semibold truncate">{user.name}</p>
                   <p className="text-xs text-gray-400 truncate mt-0.5">{user.email}</p>
@@ -117,6 +112,14 @@ const Navbar = () => {
                 >
                   <TicketPlus className="w-4 h-4 text-gray-400" />
                   My Bookings
+                </button>
+
+                <button
+                  onClick={() => { setDropdownOpen(false); navigate("/profile"); }}
+                  className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-white/8 transition cursor-pointer"
+                >
+                  <UserIcon className="w-4 h-4 text-gray-400" />
+                  My Profile
                 </button>
 
                 {user.isAdmin && (

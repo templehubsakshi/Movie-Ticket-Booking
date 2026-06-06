@@ -4,6 +4,9 @@ import { Eye, EyeOff, Film } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import toast from "react-hot-toast";
 
+// LOW-12: basic email format regex used for client-side validation.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const Register = () => {
   const { axios, login } = useAppContext();
   const navigate = useNavigate();
@@ -18,9 +21,11 @@ const Register = () => {
 
   const validate = () => {
     const e = {};
-    if (!form.name.trim())        e.name     = "Name is required";
-    if (!form.email)              e.email    = "Email is required";
-    if (form.password.length < 6) e.password = "Password must be at least 6 characters";
+    if (!form.name.trim())             e.name     = "Name is required";
+    if (!form.email)                   e.email    = "Email is required";
+    // LOW-12 fix: validate email format, not just presence.
+    else if (!EMAIL_RE.test(form.email)) e.email  = "Enter a valid email address";
+    if (form.password.length < 6)      e.password = "Password must be at least 6 characters";
     setErrors(e);
     return !Object.keys(e).length;
   };
@@ -37,7 +42,7 @@ const Register = () => {
     try {
       const { data } = await axios.post("/api/auth/register", form);
       if (data.success) {
-        login(data.token, data.user);
+        login(data.user);
         toast.success(`Account created! Welcome, ${data.user.name}!`);
         navigate(from, { replace: true });
       } else {
