@@ -9,6 +9,7 @@ import Home          from "./pages/Home";
 import Movies        from "./pages/Movies";
 import MovieDetails  from "./pages/MovieDetails";
 import SeatLayout    from "./pages/SeatLayout";
+import GroupBooking  from "./pages/GroupBooking";
 import MyBookings    from "./pages/MyBookings";
 import Favorite      from "./pages/Favorite";
 import Login         from "./pages/Login";
@@ -42,6 +43,7 @@ const App = () => {
 
         {/* Auth-required routes */}
         <Route path="/movies/:id/:date"    element={<ProtectedRoute><SeatLayout /></ProtectedRoute>} />
+        <Route path="/group-booking/:code" element={<ProtectedRoute><GroupBooking /></ProtectedRoute>} />
         <Route path="/my-bookings"         element={<ProtectedRoute><MyBookings /></ProtectedRoute>} />
         <Route path="/favorite"            element={<ProtectedRoute><Favorite /></ProtectedRoute>} />
         <Route path="/loading/:nextUrl"    element={<ProtectedRoute><PaymentLoading /></ProtectedRoute>} />

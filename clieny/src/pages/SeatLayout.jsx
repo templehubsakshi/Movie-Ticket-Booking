@@ -109,6 +109,30 @@ const SeatLayout = () => {
     }
   };
 
+  // Group booking: instead of one person paying for everyone, this reserves
+  // the selected seats and hands back a shareable code — each friend claims
+  // and pays for their own seats from /group-booking/:code.
+  const startGroupBooking = async () => {
+    try {
+      if (!user)         return toast.error("Please login to proceed");
+      if (!selectedTime) return toast.error("Please select a showtime");
+      if (selectedSeats.length < 2) return toast.error("Pick at least 2 seats to start a group booking");
+
+      const { data } = await axios.post("/api/group-booking/create", {
+        showId: selectedTime.showId,
+        selectedSeats,
+      });
+
+      if (data.success) {
+        navigate(`/group-booking/${data.code}`);
+      } else {
+        toast.error(data.message);
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not start group booking. Please try again.");
+    }
+  };
+
   useEffect(() => { getShow(); }, [id]);
 
   useEffect(() => {
@@ -187,13 +211,25 @@ const SeatLayout = () => {
           </p>
         )}
 
-        <button
-          onClick={bookTickets}
-          className="flex items-center gap-1 mt-8 px-10 py-3 text-sm bg-primary hover:bg-primary-dull transition rounded-full font-medium cursor-pointer active:scale-95"
-        >
-          Proceed to Checkout
-          <ArrowRightIcon strokeWidth={3} className="w-4 h-4" />
-        </button>
+        <div className="flex flex-col sm:flex-row items-center gap-3 mt-8">
+          <button
+            onClick={bookTickets}
+            className="flex items-center gap-1 px-10 py-3 text-sm bg-primary hover:bg-primary-dull transition rounded-full font-medium cursor-pointer active:scale-95"
+          >
+            Proceed to Checkout
+            <ArrowRightIcon strokeWidth={3} className="w-4 h-4" />
+          </button>
+
+          {selectedSeats.length >= 2 && (
+            <button
+              onClick={startGroupBooking}
+              className="flex items-center gap-1 px-8 py-3 text-sm border border-primary/60 hover:bg-primary/10 transition rounded-full font-medium cursor-pointer active:scale-95"
+              title="Get a shareable link so each friend pays for their own seat"
+            >
+              Split with friends instead
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

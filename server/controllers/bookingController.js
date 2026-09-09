@@ -3,13 +3,14 @@ import Booking from "../models/Booking.js";
 import Show from "../models/Show.js";
 import mongoose from "mongoose";
 import Stripe from "stripe";
+import { SEAT_RE } from "../configs/constants.js";
 
 // MED-08 fix: instantiate Stripe once at module level, not per request.
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // CRIT-03: Allowlist for valid seat IDs — rows A–J, columns 1–9.
 // Prevents NoSQL injection and prototype pollution via user-supplied seat keys.
-const SEAT_RE = /^[A-J][1-9]$/;
+// (Moved to configs/constants.js so groupBookingController.js can share it.)
 
 // ===================== CREATE BOOKING =====================
 export const createBooking = async (req, res) => {
@@ -82,6 +83,7 @@ export const createBooking = async (req, res) => {
     });
 
     booking.paymentLink = session.url;
+    booking.stripeSessionId = session.id;
     await booking.save();
 
     await inngest.send({

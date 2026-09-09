@@ -1,6 +1,7 @@
 import Stripe from "stripe";
 import Booking from "../models/Booking.js";
 import { inngest } from "../inngest/index.js";
+import { markBookingPaid } from "../utils/paymentReconciliation.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -67,11 +68,10 @@ export const stripeWebhooks = async (request, response) => {
           return response.status(400).send("Amount mismatch — booking not confirmed.");
         }
 
-        // All checks passed — mark booking paid and trigger confirmation email.
-        await Booking.findByIdAndUpdate(bookingId, {
-          isPaid:      true,
-          paymentLink: "",   // clear the link so MyBookings doesn't show stale URL
-        });
+        // All checks passed — mark paid (and reconcile the group, if any)
+        // via the shared helper so this stays byte-for-byte identical to
+        // the safety-net reconciliation the release jobs call.
+        await markBookingPaid(booking);
 
         // Fire the Inngest event that sends the confirmation email.
         await inngest.send({

@@ -3,7 +3,13 @@ import mongoose from "mongoose";
 import User from "../models/User.js";
 import Booking from "../models/Booking.js";
 import Show from "../models/Show.js";
+import GroupBooking from "../models/GroupBooking.js";
 import { sendEmail } from "../configs/nodeMailer.js";
+import {
+  GROUP_DECISION_GRACE_MINUTES,
+} from "../configs/constants.js";
+import { releaseUnpaidGroupSeats } from "../utils/groupBookingRelease.js";
+import { reconcileIfActuallyPaid } from "../utils/paymentReconciliation.js";
 
 export const inngest = new Inngest({ id: "movie-ticket-booking" });
 
@@ -249,9 +255,148 @@ const sendNewShowNotifications = inngest.createFunction(
   }
 );
 
+// ─── Group booking: resolve at the original expiry ────────────────────────────
+// GROUP-05: three outcomes, depending on what's paid when the timer hits:
+//   - already fully paid       -> no-op (webhook already marked 'completed')
+//   - nobody paid anything     -> release everything immediately, no decision
+//                                  needed since there's nothing to preserve
+//   - a MIX of paid + unpaid   -> do NOT auto-resolve. Hold the unpaid seats
+//                                  a bit longer and hand the organizer a
+//                                  decision (continue with partial, or
+//                                  extend). This is the "smart expiry" case —
+//                                  the one genuinely interesting distributed-
+//                                  state design decision in the feature.
+const releaseGroupBookingSeats = inngest.createFunction(
+  { id: "release-group-booking-seats" },
+  { event: "app/group-booking-expiry-check" },
+  async ({ event, step }) => {
+    await step.sleepUntil("wait-for-group-expiry", new Date(event.data.expiresAt));
+
+    return await step.run("resolve-group-booking-expiry", async () => {
+      const groupBooking = await GroupBooking.findById(event.data.groupBookingId);
+      if (!groupBooking) return { success: false, reason: "Group booking not found" };
+      if (!["active", "extended"].includes(groupBooking.status)) {
+        // Already completed (fully paid) or resolved by an earlier run — no-op.
+        return { success: true, skipped: true, status: groupBooking.status };
+      }
+
+      const paidCount = [...groupBooking.claims.values()].filter((c) => c.status === "paid").length;
+
+      if (paidCount === 0) {
+        const released = await releaseUnpaidGroupSeats(groupBooking, { finalStatus: "expired" });
+        console.log("🎟️ Group booking expired, nothing was paid:", groupBooking._id.toString(), "| released:", released);
+        return { success: true, outcome: "expired", releasedSeats: released };
+      }
+
+      // Mixed state — hand off to the organizer instead of deciding for them.
+      const decisionDeadline = new Date(Date.now() + GROUP_DECISION_GRACE_MINUTES * 60 * 1000);
+      await GroupBooking.findByIdAndUpdate(groupBooking._id, {
+        $set: { status: "awaiting_decision", decisionDeadline },
+      });
+
+      await inngest.send({
+        name: "app/group-booking-decision-timeout",
+        data: {
+          groupBookingId: groupBooking._id.toString(),
+          decisionDeadline: decisionDeadline.toISOString(),
+        },
+      });
+
+      console.log("🤔 Group booking awaiting organizer decision:", groupBooking._id.toString());
+      return { success: true, outcome: "awaiting_decision" };
+    });
+  }
+);
+
+// ─── Group booking: release one stale per-seat claim ──────────────────────────
+// GROUP-08: a claimed-but-unpaid seat used to only free up when the WHOLE
+// group expired (up to 45+15 min) — meaning one unresponsive friend could
+// block a seat from everyone else for the entire window. This fires
+// GROUP_CLAIM_HOLD_MINUTES after each individual claim and reverts it if
+// still unpaid, independent of the group's own timer.
+const releaseStaleSeatClaim = inngest.createFunction(
+  { id: "release-stale-seat-claim" },
+  { event: "app/group-seat-claim-timeout" },
+  async ({ event, step }) => {
+    await step.sleepUntil("wait-for-claim-hold", new Date(event.data.releaseAt));
+
+    return await step.run("revert-stale-claim", async () => {
+      const { groupBookingId, seat } = event.data;
+      const groupBooking = await GroupBooking.findById(groupBookingId);
+      if (!groupBooking) return { success: false, reason: "Group booking not found" };
+      if (!["active", "extended"].includes(groupBooking.status)) {
+        // Group already resolved some other way — its own resolution path
+        // already accounts for every seat.
+        return { success: true, skipped: true, status: groupBooking.status };
+      }
+
+      const claim = groupBooking.claims.get(seat);
+      if (!claim || claim.status !== "claimed") {
+        // Already paid, already reverted, or the seat doesn't exist —
+        // nothing to do. This check is what makes the job safe to have
+        // scheduled unconditionally at claim time with no cancellation path.
+        return { success: true, skipped: true, status: claim?.status };
+      }
+
+      // Same Stripe double-check as the group-level release, for the same
+      // reason: the claimant may have paid moments before this job ran.
+      if (claim.booking) {
+        const actuallyPaid = await reconcileIfActuallyPaid(claim.booking);
+        if (actuallyPaid) return { success: true, skipped: true, reason: "paid just in time" };
+      }
+
+      await GroupBooking.findByIdAndUpdate(groupBookingId, {
+        $set: {
+          [`claims.${seat}.status`]: "unclaimed",
+          [`claims.${seat}.user`]: null,
+          [`claims.${seat}.booking`]: null,
+          [`claims.${seat}.claimedAt`]: null,
+        },
+      });
+
+      if (claim.booking) {
+        await Booking.deleteMany({ _id: claim.booking, isPaid: false });
+      }
+
+      console.log("↩️ Released stale seat claim:", groupBookingId, seat);
+      return { success: true, released: true };
+    });
+  }
+);
+
+// ─── Group booking: default if the organizer never decides ───────────────────
+// If the organizer doesn't respond within the grace window, default to
+// "continue with partial" — never "cancel + refund everyone", because that
+// would require refund infrastructure this feature deliberately doesn't have.
+// Continuing only ever keeps money already collected; it never returns any.
+const resolveGroupBookingDecisionTimeout = inngest.createFunction(
+  { id: "resolve-group-booking-decision-timeout" },
+  { event: "app/group-booking-decision-timeout" },
+  async ({ event, step }) => {
+    await step.sleepUntil("wait-for-decision-deadline", new Date(event.data.decisionDeadline));
+
+    return await step.run("apply-default-decision", async () => {
+      const groupBooking = await GroupBooking.findById(event.data.groupBookingId);
+      if (!groupBooking) return { success: false, reason: "Group booking not found" };
+      if (groupBooking.status !== "awaiting_decision") {
+        // Organizer already acted (continue/extend), or it resolved some other way.
+        return { success: true, skipped: true, status: groupBooking.status };
+      }
+
+      const released = await releaseUnpaidGroupSeats(groupBooking, { finalStatus: "completed" });
+
+      console.log("⏱️ Organizer never decided — auto-continued with partial group:", groupBooking._id.toString(), "| released:", released);
+      return { success: true, outcome: "auto-continued", releasedSeats: released };
+    });
+  }
+);
+
 export const functions = [
   releaseSeatsAndDeleteBooking,
   sendBookingConfirmationEmail,
   sendShowReminders,
   sendNewShowNotifications,
+  releaseGroupBookingSeats,
+  resolveGroupBookingDecisionTimeout,
+  releaseStaleSeatClaim,
 ];
