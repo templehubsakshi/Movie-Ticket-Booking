@@ -42,6 +42,17 @@ A full-stack movie ticket booking application where users browse movies, select 
 - Update profile (name and avatar image URL)
 - Email confirmation after successful payment
 - Automated show reminder emails (~8 hours before showtime)
+- 
+### Group Booking & Split Payments
+
+* Create a group booking by selecting multiple seats for the same show.
+* Share a unique booking code/link with friends so they can claim individual seats.
+* Each participant completes their own Stripe Checkout payment for their claimed seat(s).
+* Track seat status through `unclaimed → claimed → paid`.
+* Prevent duplicate seat claims with atomic database operations.
+* Automatically release unclaimed or unpaid seats after the configured timeout.
+* Handle Stripe webhook events idempotently to prevent duplicate payment updates.
+
 
 ### Admin Features
 - Admin dashboard with revenue, booking, and user stats
